@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, RefreshCw, Settings, Eye, EyeOff, Download, Upload, RotateCcw, Trash2, FolderOpen, Pencil } from 'lucide-react'
+import { Plus, RefreshCw, Settings, Eye, EyeOff, Download, Upload, RotateCcw, Trash2, FolderOpen, Pencil, AlertTriangle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +22,9 @@ import HoldingsTable from './HoldingsTable'
 import HistoryChart from './HistoryChart'
 import DbConfigDialog from './DbConfigDialog'
 import EditTransactionDialog from './EditTransactionDialog'
+import TwrPanel from './TwrPanel'
+import RetirementProgressPanel from './RetirementProgressPanel'
+import RebalanceAssistant from './RebalanceAssistant'
 
 const fmt = (n: number, digits = 0) =>
   new Intl.NumberFormat('zh-TW', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n)
@@ -257,6 +260,10 @@ export default function Dashboard() {
   const totalUsd = total / state.exchange_rate
   const cats = categorySummaries(state)
   const rebalance = rebalanceRows(state)
+  const DEVIATION_THRESHOLD = 5
+  const deviatingBuckets = cats.filter(
+    c => c.target_pct > 0 && Math.abs(c.actual_pct - c.target_pct) >= DEVIATION_THRESHOLD,
+  )
   const { target_year, target_amount_twd, annual_contribution_wan } = state.retirement
   const progress = total / target_amount_twd
   const remaining = target_amount_twd - total
@@ -317,6 +324,43 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Deviation alert banner */}
+      {deviatingBuckets.length > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+          <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              再平衡提醒：{deviatingBuckets.length} 個桶子偏離目標超過 {DEVIATION_THRESHOLD}%
+            </p>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+              {deviatingBuckets.map(c => {
+                const delta = c.actual_pct - c.target_pct
+                const isOver = delta > 0
+                return (
+                  <span key={c.key} className="text-xs">
+                    <span className="font-medium" style={{ color: c.color }}>{c.name}</span>
+                    <span className={`ml-1 font-semibold ${isOver ? 'text-red-600' : 'text-emerald-700'}`}>
+                      {isOver ? '+' : ''}{delta.toFixed(1)}%
+                    </span>
+                    <span className="text-amber-700 dark:text-amber-400 ml-1">
+                      ({isOver ? '超配' : '不足'})
+                    </span>
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-shrink-0 border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-300 text-xs h-7 px-2"
+            onClick={() => handleTabChange('rebalance')}
+          >
+            前往再平衡
+          </Button>
+        </div>
+      )}
+
       {/* Overview Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
@@ -354,6 +398,8 @@ export default function Dashboard() {
         <TabsList>
           <TabsTrigger value="overview">資產分布</TabsTrigger>
           <TabsTrigger value="trend">資產走勢</TabsTrigger>
+          <TabsTrigger value="performance">績效分析</TabsTrigger>
+          <TabsTrigger value="retirement">退休規劃</TabsTrigger>
           <TabsTrigger value="rebalance">再平衡分析</TabsTrigger>
           <TabsTrigger value="holdings">持倉明細</TabsTrigger>
           <TabsTrigger value="history">交易紀錄</TabsTrigger>
@@ -483,11 +529,22 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
 
-        {/* ── Tab 3: 再平衡 ── */}
+        {/* ── Tab 3: 績效分析 ── */}
+        <TabsContent value="performance">
+          <TwrPanel state={state} blurred={blurred} />
+        </TabsContent>
+
+        {/* ── Tab 4: 退休規劃 ── */}
+        <TabsContent value="retirement">
+          <RetirementProgressPanel state={state} blurred={blurred} />
+        </TabsContent>
+
+        {/* ── Tab 5: 再平衡 ── */}
         <TabsContent value="rebalance" className="space-y-4">
+          <RebalanceAssistant state={state} blurred={blurred} />
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">再平衡建議</CardTitle>
+              <CardTitle className="text-base">再平衡缺口分析</CardTitle>
               <p className="text-sm text-muted-foreground">以目前總資產 <A>{fmtWan(total)}</A> 為基準計算</p>
             </CardHeader>
             <CardContent>
@@ -566,12 +623,12 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
 
-        {/* ── Tab 4: 持倉明細 ── */}
+        {/* ── Tab 6: 持倉明細 ── */}
         <TabsContent value="holdings">
           <HoldingsTable state={state} onUpdate={commit} blurred={blurred} />
         </TabsContent>
 
-        {/* ── Tab 5: 交易紀錄 ── */}
+        {/* ── Tab 7: 交易紀錄 ── */}
         <TabsContent value="history">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
