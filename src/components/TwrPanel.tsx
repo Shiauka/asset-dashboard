@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell,
@@ -39,6 +39,8 @@ function downsample<T>(arr: T[], max = 80): T[] {
 }
 
 export default function TwrPanel({ state, blurred }: { state: AppState; blurred: boolean }) {
+  const [breakdownView, setBreakdownView] = useState<'yearly' | 'monthly'>('yearly')
+
   const twr = useMemo(
     () => computeTWR(state.snapshots ?? [], state.transactions, state.exchange_rate),
     [state.snapshots, state.transactions, state.exchange_rate],
@@ -56,8 +58,11 @@ export default function TwrPanel({ state, blurred }: { state: AppState; blurred:
     )
   }
 
-  const chartData = downsample(twr.series)
-  const barData = twr.yearlyReturns.map(y => ({ ...y, pct: parseFloat((y.return * 100).toFixed(2)) }))
+  const chartData  = downsample(twr.series)
+  const yearlyBar  = twr.yearlyReturns.map(y  => ({ ...y,  pct: parseFloat((y.return  * 100).toFixed(2)) }))
+  const monthlyBar = twr.monthlyReturns.map(m => ({ ...m,  pct: parseFloat((m.return  * 100).toFixed(2)) }))
+  // Only show last 24 months in the bar chart to avoid overcrowding
+  const monthlyBarTrimmed = monthlyBar.slice(-24)
 
   return (
     <div className="space-y-4">
@@ -140,66 +145,133 @@ export default function TwrPanel({ state, blurred }: { state: AppState; blurred:
         </CardContent>
       </Card>
 
-      {/* Yearly breakdown */}
-      {barData.length > 0 && (
+      {/* Yearly / Monthly breakdown */}
+      {(yearlyBar.length > 0 || monthlyBarTrimmed.length > 0) && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">各年度報酬率</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">
+                {breakdownView === 'yearly' ? '各年度報酬率' : '各月度報酬率（近 24 個月）'}
+              </CardTitle>
+              <div className="flex rounded-md border overflow-hidden text-xs">
+                <button
+                  onClick={() => setBreakdownView('yearly')}
+                  className={`px-3 py-1 transition-colors ${breakdownView === 'yearly' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                >
+                  年度
+                </button>
+                <button
+                  onClick={() => setBreakdownView('monthly')}
+                  className={`px-3 py-1 transition-colors ${breakdownView === 'monthly' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                >
+                  月度
+                </button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={barData} margin={{ left: 4, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="year" tick={{ fontSize: 12 }} />
-                <YAxis tickFormatter={v => `${Number(v).toFixed(0)}%`} tick={{ fontSize: 11 }} width={42} />
-                <Tooltip
-                  formatter={(v: unknown) => {
-                    const n = Number(v)
-                    return [`${n >= 0 ? '+' : ''}${n.toFixed(2)}%`, '年度報酬']
-                  }}
-                />
-                <ReferenceLine
-                  y={TARGET * 100}
-                  stroke="#f59e0b"
-                  strokeDasharray="4 4"
-                  label={{ value: `目標 ${(TARGET * 100).toFixed(1)}%`, fontSize: 10, fill: '#f59e0b', position: 'insideTopRight' }}
-                />
-                <Bar dataKey="pct" radius={[3, 3, 0, 0]}>
-                  {barData.map((y, i) => (
-                    <Cell key={i} fill={y.return >= 0 ? '#3b82f6' : '#ef4444'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-muted-foreground text-xs">
-                    <th className="text-left py-1.5 pr-4">年度</th>
-                    <th className="text-right pr-4">年初資產</th>
-                    <th className="text-right pr-4">年末資產</th>
-                    <th className="text-right">年度報酬</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...twr.yearlyReturns].reverse().map(y => (
-                    <tr key={y.year} className="border-b hover:bg-muted/30">
-                      <td className="py-1.5 pr-4 font-medium">{y.year}</td>
-                      <td className="text-right pr-4 text-muted-foreground">
-                        {blurred ? '***' : `${fmt(y.startValue / 10000, 1)} 萬`}
-                      </td>
-                      <td className="text-right pr-4">
-                        {blurred ? '***' : `${fmt(y.endValue / 10000, 1)} 萬`}
-                      </td>
-                      <td className="text-right">
-                        <SmallReturnLabel value={y.return} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {breakdownView === 'yearly' ? (
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={yearlyBar} margin={{ left: 4, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+                    <YAxis tickFormatter={v => `${Number(v).toFixed(0)}%`} tick={{ fontSize: 11 }} width={42} />
+                    <Tooltip
+                      formatter={(v: unknown) => {
+                        const n = Number(v)
+                        return [`${n >= 0 ? '+' : ''}${n.toFixed(2)}%`, '年度報酬']
+                      }}
+                    />
+                    <ReferenceLine
+                      y={TARGET * 100}
+                      stroke="#f59e0b"
+                      strokeDasharray="4 4"
+                      label={{ value: `目標 ${(TARGET * 100).toFixed(1)}%`, fontSize: 10, fill: '#f59e0b', position: 'insideTopRight' }}
+                    />
+                    <Bar dataKey="pct" radius={[3, 3, 0, 0]}>
+                      {yearlyBar.map((y, i) => (
+                        <Cell key={i} fill={y.return >= 0 ? '#3b82f6' : '#ef4444'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground text-xs">
+                        <th className="text-left py-1.5 pr-4">年度</th>
+                        <th className="text-right pr-4">年初資產</th>
+                        <th className="text-right pr-4">年末資產</th>
+                        <th className="text-right">年度報酬</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...twr.yearlyReturns].reverse().map(y => (
+                        <tr key={y.year} className="border-b hover:bg-muted/30">
+                          <td className="py-1.5 pr-4 font-medium">{y.year}</td>
+                          <td className="text-right pr-4 text-muted-foreground">
+                            {blurred ? '***' : `${fmt(y.startValue / 10000, 1)} 萬`}
+                          </td>
+                          <td className="text-right pr-4">
+                            {blurred ? '***' : `${fmt(y.endValue / 10000, 1)} 萬`}
+                          </td>
+                          <td className="text-right"><SmallReturnLabel value={y.return} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={monthlyBarTrimmed} margin={{ left: 4, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                    <YAxis tickFormatter={v => `${Number(v).toFixed(0)}%`} tick={{ fontSize: 11 }} width={42} />
+                    <Tooltip
+                      formatter={(v: unknown) => {
+                        const n = Number(v)
+                        return [`${n >= 0 ? '+' : ''}${n.toFixed(2)}%`, '月度報酬']
+                      }}
+                    />
+                    <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                    <Bar dataKey="pct" radius={[3, 3, 0, 0]}>
+                      {monthlyBarTrimmed.map((m, i) => (
+                        <Cell key={i} fill={m.return >= 0 ? '#3b82f6' : '#ef4444'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground text-xs">
+                        <th className="text-left py-1.5 pr-4">月份</th>
+                        <th className="text-right pr-4">月初資產</th>
+                        <th className="text-right pr-4">月末資產</th>
+                        <th className="text-right">月度報酬</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...twr.monthlyReturns].reverse().slice(0, 24).map(m => (
+                        <tr key={m.month} className="border-b hover:bg-muted/30">
+                          <td className="py-1.5 pr-4 font-medium">{m.month}</td>
+                          <td className="text-right pr-4 text-muted-foreground">
+                            {blurred ? '***' : `${fmt(m.startValue / 10000, 1)} 萬`}
+                          </td>
+                          <td className="text-right pr-4">
+                            {blurred ? '***' : `${fmt(m.endValue / 10000, 1)} 萬`}
+                          </td>
+                          <td className="text-right"><SmallReturnLabel value={m.return} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       )}

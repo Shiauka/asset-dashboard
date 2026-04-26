@@ -27,7 +27,8 @@ export interface TWRResult {
   endDate: string
   ytdReturn: number | null
   oneYearReturn: number | null
-  yearlyReturns: { year: string; return: number; startValue: number; endValue: number }[]
+  yearlyReturns:  { year: string;  return: number; startValue: number; endValue: number }[]
+  monthlyReturns: { month: string; return: number; startValue: number; endValue: number }[]
   series: { date: string; nav: number }[]
 }
 
@@ -292,7 +293,28 @@ export function computeTWR(
     })
   }
 
-  return { twr, annualized, days, startDate, endDate, ytdReturn, oneYearReturn, yearlyReturns, series }
+  // Per-month breakdown
+  const months = [...new Set(sorted.map(s => s.date.slice(0, 7)))].sort()
+  const monthlyReturns: TWRResult['monthlyReturns'] = []
+
+  for (const month of months) {
+    const monthSnaps = sorted.filter(s => s.date.startsWith(month))
+    if (monthSnaps.length === 0) continue
+    const prevSnap = sorted.filter(s => s.date < `${month}-01`).at(-1)
+    const base     = prevSnap ?? monthSnaps[0]
+    const baseNav  = navAt(base.date)
+    const endSnap  = monthSnaps.at(-1)!
+    const endNavM  = navAt(endSnap.date)
+    if (baseNav == null || endNavM == null || baseNav <= 0) continue
+    monthlyReturns.push({
+      month,
+      return:     endNavM / baseNav - 1,
+      startValue: base.total_twd,
+      endValue:   endSnap.total_twd,
+    })
+  }
+
+  return { twr, annualized, days, startDate, endDate, ytdReturn, oneYearReturn, yearlyReturns, monthlyReturns, series }
 }
 
 // Rebalance assistant: given new money (in TWD), compute how to allocate across holdings.
@@ -310,22 +332,68 @@ export function computeNewMoneyAllocation(
   const defSymbols = new Set(holdings.filter(h => h.category === 'defensive').map(h => h.symbol))
   const activeHoldings = holdings.filter(h => !defSymbols.has(h.symbol))
 
+  // ── Bucket-level gap capping ──────────────────────────────────────────────
+  // Problem: an individual holding's gap can be much larger than the bucket's
+  // allowed room. Filling the holding gap fully would push the whole bucket
+  // over target. Solution: cap total allocation per bucket at its own gap.
+  //
+  // Algorithm:
+  //   1. bucketGap[cat] = (sum of holdings' target_pct in cat / 100) * newTotal
+  //                       - current bucket value
+  //   2. If bucketGap <= 0 → whole bucket overweight, skip all holdings
+  //   3. If bucketGap > 0  → compute individual gaps, then scale them down so
+  //      their sum equals bucketGap (if sum > bucketGap)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Step 1: per-bucket current value and configured target %
+  const bucketCurrent:   Partial<Record<Category, number>> = {}
+  const bucketTargetPct: Partial<Record<Category, number>> = {}
+  for (const h of activeHoldings) {
+    bucketCurrent[h.category]   = (bucketCurrent[h.category]   ?? 0) + holdingValueTwd(h.shares, h.price, h.currency, fx)
+    bucketTargetPct[h.category] = (bucketTargetPct[h.category] ?? 0) + h.target_pct
+  }
+
+  // Step 2: per-bucket gap (positive = underweight)
+  const bucketGap: Partial<Record<Category, number>> = {}
+  for (const cat of Object.keys(bucketCurrent) as Category[]) {
+    const target = ((bucketTargetPct[cat] ?? 0) / 100) * newTotal
+    bucketGap[cat] = target - (bucketCurrent[cat] ?? 0)
+  }
+
+  // Step 3: per-holding raw gap (only meaningful for underweight buckets)
+  const rawGapMap = new Map<string, number>()
+  for (const h of activeHoldings) {
+    if ((bucketGap[h.category] ?? 0) <= 0) { rawGapMap.set(h.symbol, 0); continue }
+    const current = holdingValueTwd(h.shares, h.price, h.currency, fx)
+    rawGapMap.set(h.symbol, Math.max(0, (h.target_pct / 100) * newTotal - current))
+  }
+
+  // Step 4: if sum of individual gaps in a bucket exceeds bucketGap, scale down
+  const bucketIndSum: Partial<Record<Category, number>> = {}
+  for (const h of activeHoldings) {
+    if ((bucketGap[h.category] ?? 0) > 0)
+      bucketIndSum[h.category] = (bucketIndSum[h.category] ?? 0) + (rawGapMap.get(h.symbol) ?? 0)
+  }
+  const bucketScale: Partial<Record<Category, number>> = {}
+  for (const cat of Object.keys(bucketGap) as Category[]) {
+    const bg = bucketGap[cat] ?? 0
+    const bs = bucketIndSum[cat] ?? 0
+    bucketScale[cat] = (bg > 0 && bs > bg) ? bg / bs : 1.0
+  }
+
+  // Step 5: build rows with bucket-capped buy amounts
   const rows: AllocationRow[] = activeHoldings.map(h => {
     const current_value_twd = holdingValueTwd(h.shares, h.price, h.currency, fx)
-    const new_target_twd    = (h.target_pct / 100) * newTotal
-    const raw_gap           = new_target_twd - current_value_twd
-    const is_overweight     = raw_gap <= 0
-    return {
-      symbol: h.symbol,
-      name: h.name,
-      currency: h.currency,
-      price: h.price,
-      current_value_twd,
-      target_pct: h.target_pct,
-      buy_amount_twd: is_overweight ? 0 : raw_gap,
-      is_defensive: false,
-      is_overweight,
+    if ((bucketGap[h.category] ?? 0) <= 0) {
+      return { symbol: h.symbol, name: h.name, currency: h.currency, price: h.price,
+               current_value_twd, target_pct: h.target_pct,
+               buy_amount_twd: 0, is_defensive: false, is_overweight: true }
     }
+    const raw            = rawGapMap.get(h.symbol) ?? 0
+    const buy_amount_twd = raw * (bucketScale[h.category] ?? 1.0)
+    return { symbol: h.symbol, name: h.name, currency: h.currency, price: h.price,
+             current_value_twd, target_pct: h.target_pct,
+             buy_amount_twd, is_defensive: false, is_overweight: raw <= 0 }
   })
 
   // ── Defensive bucket aggregate ──
@@ -373,14 +441,24 @@ export function computeNewMoneyAllocation(
     unallocated_twd = newMoneyTwd - sumGaps
   }
 
-  // ── Compute share counts ──
+  // ── Compute share counts (rounded to tradeable lots) ──
+  // TWD stocks: 1 lot = 1000 shares (台股整張)
+  // USD stocks: 1 share minimum
+  // buy_amount_twd is recalculated from rounded shares so the table is self-consistent.
   for (const r of rows) {
     if (r.is_defensive || !r.price || r.price <= 0) continue
-    const price_twd = r.currency === 'USD' ? r.price * fx : r.price
-    r.buy_shares = r.buy_amount_twd / price_twd
+    const price_twd  = r.currency === 'USD' ? r.price * fx : r.price
+    const raw_shares = r.buy_amount_twd / price_twd
+    r.buy_shares     = r.currency === 'TWD'
+      ? Math.floor(raw_shares / 1000) * 1000
+      : Math.floor(raw_shares)
+    r.buy_amount_twd = r.buy_shares * price_twd
   }
 
-  // Sort: largest allocation first (skip zero-allocation rows last)
+  // ── Recalculate unallocated after rounding down shares ──
+  unallocated_twd = newMoneyTwd - rows.reduce((s, r) => s + r.buy_amount_twd, 0)
+
+  // Sort: largest allocation first
   rows.sort((a, b) => b.buy_amount_twd - a.buy_amount_twd)
 
   return { rows, unallocated_twd, new_total_twd: newTotal }

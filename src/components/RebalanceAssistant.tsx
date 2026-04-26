@@ -47,7 +47,7 @@ export default function RebalanceAssistant({ state, blurred }: { state: AppState
       <CardHeader>
         <CardTitle className="text-base">新資金分配助手</CardTitle>
         <p className="text-xs text-muted-foreground">
-          輸入本次要投入的金額，自動計算補足各桶缺口的最佳分配——只買不賣，優先補足偏離最大的標的。
+          輸入本次要投入的金額，自動計算補足各桶缺口的最佳分配——只買不賣，以大桶偏離為優先：整體桶位已達標則跳過桶內個股，優先補足偏離最大的欠配桶。
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -150,9 +150,9 @@ export default function RebalanceAssistant({ state, blurred }: { state: AppState
                           {r.buy_shares != null && r.buy_amount_twd > 0 ? (
                             <B>
                               {r.currency === 'TWD'
-                                ? `${fmt(Math.floor(r.buy_shares))} 股`
+                                ? `${fmt(r.buy_shares)} 股`
                                 : `${r.buy_shares >= 1
-                                    ? fmt(Math.floor(r.buy_shares))
+                                    ? fmt(r.buy_shares)
                                     : r.buy_shares.toFixed(4)} 股`}
                             </B>
                           ) : r.is_defensive && r.buy_amount_twd > 0 ? (
@@ -196,7 +196,7 @@ export default function RebalanceAssistant({ state, blurred }: { state: AppState
 
             {/* Note */}
             <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
-              <p>· 股數以整股計算（台股），美股可持有小數股（視券商而定）。</p>
+              <p>· 台股以整張（1,000 股）為單位，美股以整股為單位。</p>
               <p>· 防禦桶建議：優先補 SGOV（USD），再補台幣活存。</p>
               <p>· 目前持倉比例以即時報價計算，每日開盤後略有變動。</p>
               {result.unallocated_twd > 0 && (

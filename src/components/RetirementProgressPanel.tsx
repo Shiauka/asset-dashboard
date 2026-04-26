@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Legend,
@@ -22,6 +22,14 @@ function fv(pv: number, rate: number, years: number, pmt: number): number {
   return pv * g + pmt * (g - 1) / rate
 }
 
+// Future value: monthly compounding, monthlyPmt per month
+function fvMonthly(pv: number, annualRate: number, months: number, monthlyPmt: number): number {
+  const r = Math.pow(1 + annualRate, 1 / 12) - 1
+  if (Math.abs(r) < 1e-9) return pv + monthlyPmt * months
+  const g = Math.pow(1 + r, months)
+  return pv * g + monthlyPmt * (g - 1) / r
+}
+
 interface ChartPoint {
   year: number
   actual?: number    // 萬 TWD, historical snapshots
@@ -30,6 +38,8 @@ interface ChartPoint {
 }
 
 export default function RetirementProgressPanel({ state, blurred }: { state: AppState; blurred: boolean }) {
+  const [milestoneView, setMilestoneView] = useState<'yearly' | 'monthly'>('yearly')
+
   const B = ({ children }: { children: React.ReactNode }) =>
     blurred ? <span className="blur-sm select-none">{children}</span> : <>{children}</>
 
@@ -101,11 +111,26 @@ export default function RetirementProgressPanel({ state, blurred }: { state: App
       p => p.year >= currentYear && p.year <= milestoneEnd && p.projected != null,
     )
 
+    // Monthly milestones: next 24 months
+    const monthlyPmt = annualContrib / 12
+    const baseYear  = today.getFullYear()
+    const baseMonth = today.getMonth() + 1 // 1-based
+    const monthlyMilestones = Array.from({ length: 24 }, (_, i) => {
+      const m = i + 1
+      const absMonth = baseMonth + m - 1
+      const y = baseYear + Math.floor(absMonth / 12) + (absMonth % 12 === 0 ? -1 : 0)
+      const mo = ((absMonth - 1) % 12) + 1
+      const label = `${y}-${String(mo).padStart(2, '0')}`
+      const projected = Math.round(fvMonthly(total, projRate, m, monthlyPmt) / 10000)
+      const required  = Math.round(fvMonthly(total, reqReturn, m, monthlyPmt) / 10000)
+      return { month: label, projected, required }
+    })
+
     return {
       total, annualContrib, target_amount_twd, target_year, annual_contribution_wan,
       yearsLeft, reqReturn, actualReturn, projRate,
       projCompletionYear, yearsAheadBehind,
-      chartData, milestones, targetWan,
+      chartData, milestones, monthlyMilestones, targetWan,
       progress: (total / target_amount_twd) * 100,
     }
   }, [state])
@@ -114,7 +139,7 @@ export default function RetirementProgressPanel({ state, blurred }: { state: App
     total, annualContrib: _annualContrib, target_amount_twd, target_year, annual_contribution_wan,
     yearsLeft, reqReturn, actualReturn,
     projCompletionYear, yearsAheadBehind,
-    chartData, milestones, targetWan,
+    chartData, milestones, monthlyMilestones, targetWan,
     progress,
   } = computed
 
@@ -203,6 +228,7 @@ export default function RetirementProgressPanel({ state, blurred }: { state: App
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               剩 {yearsLeft} 年 · 年存 <B>{annual_contribution_wan} 萬</B>
+              <span className="ml-1 text-muted-foreground/70">（月存 <B>{(annual_contribution_wan / 12).toFixed(1)} 萬</B>）</span>
             </p>
           </CardContent>
         </Card>
@@ -293,59 +319,112 @@ export default function RetirementProgressPanel({ state, blurred }: { state: App
       {/* ── Milestone table ── */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">關鍵年度里程碑</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">
+              {milestoneView === 'yearly' ? '關鍵年度里程碑' : '月度里程碑（未來 24 個月）'}
+            </CardTitle>
+            <div className="flex rounded-md border overflow-hidden text-xs">
+              <button
+                onClick={() => setMilestoneView('yearly')}
+                className={`px-3 py-1 transition-colors ${milestoneView === 'yearly' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+              >
+                年度
+              </button>
+              <button
+                onClick={() => setMilestoneView('monthly')}
+                className={`px-3 py-1 transition-colors ${milestoneView === 'monthly' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+              >
+                月度
+              </button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-muted-foreground text-xs">
-                  <th className="text-left py-1.5 pr-4">年份</th>
-                  <th className="text-right pr-4">預測資產</th>
-                  <th className="text-right pr-4">所需資產</th>
-                  <th className="text-right">領先 / 落後</th>
-                </tr>
-              </thead>
-              <tbody>
-                {milestones.map(p => {
-                  const gap = (p.projected ?? 0) - (p.required ?? 0)
-                  const isTargetYear = p.year === target_year
-                  const isProjYear = p.year === projCompletionYear
-                  return (
-                    <tr
-                      key={p.year}
-                      className={`border-b hover:bg-muted/30 ${isTargetYear ? 'bg-blue-50 dark:bg-blue-950/20 font-medium' : ''}`}
-                    >
-                      <td className="py-1.5 pr-4">
-                        {p.year}
-                        {isTargetYear && (
-                          <Badge variant="outline" className="ml-2 text-xs">目標年</Badge>
-                        )}
-                        {isProjYear && !isTargetYear && (
-                          <Badge className="ml-2 text-xs bg-emerald-600">達標</Badge>
-                        )}
-                      </td>
-                      <td className="text-right pr-4">
-                        <B>{fmt(p.projected ?? 0)} 萬</B>
-                      </td>
-                      <td className="text-right pr-4 text-muted-foreground">
-                        <B>{fmt(p.required ?? 0)} 萬</B>
-                      </td>
-                      <td className={`text-right font-medium ${gap >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        <B>{gap >= 0 ? '+' : ''}{fmt(gap)} 萬</B>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          {milestoneView === 'yearly' ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground text-xs">
+                    <th className="text-left py-1.5 pr-4">年份</th>
+                    <th className="text-right pr-4">預測資產</th>
+                    <th className="text-right pr-4">所需資產</th>
+                    <th className="text-right">領先 / 落後</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {milestones.map(p => {
+                    const gap = (p.projected ?? 0) - (p.required ?? 0)
+                    const isTargetYear = p.year === target_year
+                    const isProjYear = p.year === projCompletionYear
+                    return (
+                      <tr
+                        key={p.year}
+                        className={`border-b hover:bg-muted/30 ${isTargetYear ? 'bg-blue-50 dark:bg-blue-950/20 font-medium' : ''}`}
+                      >
+                        <td className="py-1.5 pr-4">
+                          {p.year}
+                          {isTargetYear && (
+                            <Badge variant="outline" className="ml-2 text-xs">目標年</Badge>
+                          )}
+                          {isProjYear && !isTargetYear && (
+                            <Badge className="ml-2 text-xs bg-emerald-600">達標</Badge>
+                          )}
+                        </td>
+                        <td className="text-right pr-4">
+                          <B>{fmt(p.projected ?? 0)} 萬</B>
+                        </td>
+                        <td className="text-right pr-4 text-muted-foreground">
+                          <B>{fmt(p.required ?? 0)} 萬</B>
+                        </td>
+                        <td className={`text-right font-medium ${gap >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          <B>{gap >= 0 ? '+' : ''}{fmt(gap)} 萬</B>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground text-xs">
+                    <th className="text-left py-1.5 pr-4">月份</th>
+                    <th className="text-right pr-4">預測資產</th>
+                    <th className="text-right pr-4">所需資產</th>
+                    <th className="text-right">領先 / 落後</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyMilestones.map(m => {
+                    const gap = m.projected - m.required
+                    return (
+                      <tr key={m.month} className="border-b hover:bg-muted/30">
+                        <td className="py-1.5 pr-4 font-medium">{m.month}</td>
+                        <td className="text-right pr-4">
+                          <B>{fmt(m.projected)} 萬</B>
+                        </td>
+                        <td className="text-right pr-4 text-muted-foreground">
+                          <B>{fmt(m.required)} 萬</B>
+                        </td>
+                        <td className={`text-right font-medium ${gap >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          <B>{gap >= 0 ? '+' : ''}{fmt(gap)} 萬</B>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <p className="text-xs text-muted-foreground px-1">
         預測軌跡以目前年化 TWR（{actualReturn != null ? fmtPct(actualReturn) : '資料累積中，暫用所需報酬率'}）
-        + 年存 {annual_contribution_wan} 萬計算。持倉未滿 30 天時以所需報酬率代替實際 TWR。
+        + 年存 {annual_contribution_wan} 萬（月存 {(annual_contribution_wan / 12).toFixed(1)} 萬）計算。
+        月度里程碑採月複利計算。持倉未滿 30 天時以所需報酬率代替實際 TWR。
         本預測為估算值，非投資建議。
       </p>
     </div>
