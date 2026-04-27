@@ -22,7 +22,7 @@ const CATEGORY_KEYS = Object.keys(CATEGORY_META) as Category[]
 
 const TYPE_LABELS: Record<TxType, string> = {
   buy: '買入', sell: '賣出', cash_in: '現金入', cash_out: '現金出',
-  new_position: '建立股票部位', new_cash_account: '建立現金帳戶',
+  new_position: '建立股票部位', new_cash_account: '建立現金帳戶', transfer: '帳戶轉帳',
 }
 
 function Row({ label, sublabel, children }: { label: string; sublabel?: string; children: React.ReactNode }) {
@@ -96,11 +96,24 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
   const [newBankAmount, setNewBankAmount] = useState('')
   const [newBankType, setNewBankType] = useState<'bank' | 'savings_insurance'>('bank')
 
+  // 帳戶轉帳
+  const [transferFrom, setTransferFrom] = useState('')
+  const [transferTo, setTransferTo] = useState('')
+  const [transferAmount, setTransferAmount] = useState('')
+  const [transferAmountTo, setTransferAmountTo] = useState('')
+
   const isStockTx = txType === 'buy' || txType === 'sell'
   const isCashTx = txType === 'cash_in' || txType === 'cash_out'
   const isNewPos = txType === 'new_position'
   const isNewCash = txType === 'new_cash_account'
+  const isTransfer = txType === 'transfer'
   const isCreate = isNewPos || isNewCash
+
+  const fromAccount = cashAccounts.find(c => c.bank === transferFrom)
+  const toAccount = cashAccounts.find(c => c.bank === transferTo)
+  const fromCurrency = fromAccount?.currency ?? 'TWD'
+  const toCurrency = toAccount?.currency ?? 'TWD'
+  const isCrossCurrency = !!transferFrom && !!transferTo && fromCurrency !== toCurrency
 
   const matchingAccounts = cashAccounts.filter(c => c.currency === currency)
 
@@ -120,6 +133,7 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
     setBank(''); setCashAmount('')
     setNewSymbol(''); setNewName(''); setNewShares(''); setNewPrice(''); setNewTargetPct('')
     setNewBankName(''); setNewBankAmount('')
+    setTransferFrom(''); setTransferTo(''); setTransferAmount(''); setTransferAmountTo('')
     setNote('')
   }
 
@@ -177,6 +191,22 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
       onSubmit(tx)
     }
 
+    if (isTransfer) {
+      const tx: Transaction = {
+        id: `${Date.now()}`,
+        date, type: 'transfer',
+        currency: fromCurrency,
+        bank: transferFrom,
+        bank_to: transferTo,
+        amount: parseFloat(transferAmount) || 0,
+        amount_to: isCrossCurrency ? (parseFloat(transferAmountTo) || 0) : undefined,
+        currency_to: isCrossCurrency ? toCurrency : undefined,
+        commission: parseFloat(commission) || undefined,
+        note: note || undefined,
+      }
+      onSubmit(tx)
+    }
+
     reset()
     onClose()
   }
@@ -185,7 +215,8 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
     (isStockTx && !!symbol) ||
     (isCashTx && !!bank && !!cashAmount) ||
     (isNewPos && !!newSymbol) ||
-    (isNewCash && !!newBankName)
+    (isNewCash && !!newBankName) ||
+    (isTransfer && !!transferFrom && !!transferTo && transferFrom !== transferTo && !!transferAmount && (!isCrossCurrency || !!transferAmountTo))
 
   // Active button style uses explicit slate-800 to avoid CSS-var resolution issues in Tailwind v4
   const activeBtn = 'bg-slate-800 text-white border-slate-800'
@@ -215,8 +246,8 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
             ))}
           </div>
 
-          {/* 建立部位 */}
-          <div className="grid grid-cols-2 gap-1.5">
+          {/* 建立部位 / 轉帳 */}
+          <div className="grid grid-cols-3 gap-1.5">
             <button
               onClick={() => { setTxType('new_position'); reset() }}
               className={`rounded-md py-2 text-sm font-medium border transition-colors ${
@@ -225,7 +256,17 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
                   : 'border-dashed border-emerald-500 text-emerald-700 hover:bg-emerald-50'
               }`}
             >
-              + 建立股票部位
+              + 建立股票
+            </button>
+            <button
+              onClick={() => { setTxType('transfer'); reset() }}
+              className={`rounded-md py-2 text-sm font-medium border transition-colors ${
+                isTransfer
+                  ? 'bg-amber-500 text-white border-amber-500'
+                  : 'border-dashed border-amber-400 text-amber-700 hover:bg-amber-50'
+              }`}
+            >
+              帳戶轉帳
             </button>
             <button
               onClick={() => { setTxType('new_cash_account'); reset() }}
@@ -235,7 +276,7 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
                   : 'border-dashed border-indigo-400 text-indigo-600 hover:bg-indigo-50'
               }`}
             >
-              + 建立現金帳戶
+              + 建立現金
             </button>
           </div>
 
@@ -416,6 +457,55 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
               <Row label="初始金額" sublabel="選填">
                 <Input type="number" step="0.01" placeholder="0" value={newBankAmount}
                   onChange={e => setNewBankAmount(e.target.value)} />
+              </Row>
+            </>
+          )}
+
+          {/* ── 帳戶轉帳 ── */}
+          {isTransfer && (
+            <>
+              <Row label="轉出帳戶">
+                <AccountSelect
+                  accounts={cashAccounts}
+                  value={transferFrom}
+                  onChange={v => { setTransferFrom(v); setTransferAmountTo('') }}
+                  placeholder="選擇來源帳戶"
+                />
+              </Row>
+              <Row label="轉入帳戶">
+                <AccountSelect
+                  accounts={cashAccounts.filter(c => c.bank !== transferFrom)}
+                  value={transferTo}
+                  onChange={v => { setTransferTo(v); setTransferAmountTo('') }}
+                  placeholder="選擇目標帳戶"
+                />
+              </Row>
+              <Row label="轉出金額">
+                <div className="flex gap-2 items-center">
+                  <Input type="number" step="0.01" placeholder="0" value={transferAmount}
+                    onChange={e => setTransferAmount(e.target.value)} />
+                  <span className="text-sm text-muted-foreground w-10">{fromCurrency}</span>
+                </div>
+              </Row>
+              {isCrossCurrency && (
+                <Row label="到帳金額">
+                  <div className="flex gap-2 items-center">
+                    <Input type="number" step="0.01" placeholder="0" value={transferAmountTo}
+                      onChange={e => setTransferAmountTo(e.target.value)} />
+                    <span className="text-sm text-muted-foreground w-10">{toCurrency}</span>
+                  </div>
+                </Row>
+              )}
+              {isCrossCurrency && transferAmount && transferAmountTo && (
+                <Row label="隱含匯率">
+                  <span className="text-sm text-muted-foreground">
+                    1 {toCurrency} = {(parseFloat(transferAmount) / parseFloat(transferAmountTo)).toFixed(4)} {fromCurrency}
+                  </span>
+                </Row>
+              )}
+              <Row label="手續費" sublabel="選填">
+                <Input type="number" step="0.01" placeholder="0" value={commission}
+                  onChange={e => setCommission(e.target.value)} />
               </Row>
             </>
           )}

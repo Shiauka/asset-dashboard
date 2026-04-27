@@ -75,6 +75,16 @@ export function applyTransaction(
     return next
   }
 
+  if (tx.type === 'transfer' && tx.bank && tx.bank_to) {
+    const accounts = [...next.cash_accounts]
+    const fromIdx = accounts.findIndex(c => c.bank === tx.bank)
+    const toIdx = accounts.findIndex(c => c.bank === tx.bank_to)
+    if (fromIdx >= 0) accounts[fromIdx] = { ...accounts[fromIdx], amount: accounts[fromIdx].amount - tx.amount }
+    if (toIdx >= 0) accounts[toIdx] = { ...accounts[toIdx], amount: accounts[toIdx].amount + (tx.amount_to ?? tx.amount) }
+    next.cash_accounts = accounts
+    return next
+  }
+
   if ((tx.type === 'buy' || tx.type === 'sell') && tx.symbol && tx.shares && tx.price) {
     const idx = next.holdings.findIndex(h => h.symbol === tx.symbol)
     if (idx >= 0) {
@@ -214,6 +224,19 @@ export function reverseTransaction(state: AppState, id: string): AppState {
       }
       break
     }
+    case 'transfer': {
+      const accounts = [...next.cash_accounts]
+      if (tx.bank) {
+        const idx = accounts.findIndex(c => c.bank === tx.bank)
+        if (idx >= 0) accounts[idx] = { ...accounts[idx], amount: accounts[idx].amount + tx.amount }
+      }
+      if (tx.bank_to) {
+        const idx = accounts.findIndex(c => c.bank === tx.bank_to)
+        if (idx >= 0) accounts[idx] = { ...accounts[idx], amount: accounts[idx].amount - (tx.amount_to ?? tx.amount) }
+      }
+      next = { ...next, cash_accounts: accounts }
+      break
+    }
   }
 
   return next
@@ -268,6 +291,15 @@ export function retroactivelyAdjustSnapshots(
         if (tx.symbol && tx.shares && tx.price) {
           const val = toTwd(tx.shares * tx.price, tx.currency)
           h[tx.symbol] = direction === 1 ? val : 0
+        }
+        break
+      case 'transfer':
+        if (tx.bank && h[tx.bank] !== undefined)
+          h[tx.bank] -= direction * toTwd(tx.amount, tx.currency)
+        if (tx.bank_to && h[tx.bank_to] !== undefined) {
+          const amtTo = tx.amount_to ?? tx.amount
+          const curTo = tx.currency_to ?? tx.currency
+          h[tx.bank_to] += direction * toTwd(amtTo, curTo)
         }
         break
     }

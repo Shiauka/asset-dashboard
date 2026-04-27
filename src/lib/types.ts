@@ -1,6 +1,6 @@
 export type Currency = 'USD' | 'TWD'
 export type Category = 'core' | 'aggressive' | 'global' | 'alternative' | 'defensive'
-export type TxType = 'buy' | 'sell' | 'cash_in' | 'cash_out' | 'new_position' | 'new_cash_account'
+export type TxType = 'buy' | 'sell' | 'cash_in' | 'cash_out' | 'new_position' | 'new_cash_account' | 'transfer'
 
 export interface Holding {
   symbol: string
@@ -33,6 +33,9 @@ export interface Transaction {
   amount: number
   commission?: number
   note?: string
+  bank_to?: string
+  amount_to?: number
+  currency_to?: Currency
 }
 
 export interface RetirementSettings {
