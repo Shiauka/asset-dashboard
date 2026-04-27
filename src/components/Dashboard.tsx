@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [dbOpen, setDbOpen] = useState(false)
   const [dbRootDir, setDbRootDir] = useState<string | null>(null)
+  const [rebalanceCcy, setRebalanceCcy] = useState<'all' | 'TWD' | 'USD'>('all')
   const importRef = useRef<HTMLInputElement>(null)
 
   const commit = useCallback((next: AppState) => {
@@ -542,85 +543,163 @@ export default function Dashboard() {
         {/* ── Tab 5: 再平衡 ── */}
         <TabsContent value="rebalance" className="space-y-4">
           <RebalanceAssistant state={state} blurred={blurred} />
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">再平衡缺口分析</CardTitle>
-              <p className="text-sm text-muted-foreground">以目前總資產 <A>{fmtWan(total)}</A> 為基準計算</p>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart
-                  data={rebalance.map(r => ({ name: r.symbol, delta: parseFloat((r.delta_twd / 10000).toFixed(1)) }))}
-                  layout="vertical" margin={{ left: 20, right: 30 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tickFormatter={v => `${v}萬`} />
-                  <YAxis type="category" dataKey="name" width={55} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v) => [blurred ? '***' : `${Number(v)} 萬 TWD`, '缺口']} />
-                  <ReferenceLine x={0} stroke="#64748b" />
-                  <Bar dataKey="delta" radius={[0, 3, 3, 0]}>
-                    {rebalance.map((r, i) => <Cell key={i} fill={r.delta_twd >= 0 ? '#10b981' : '#ef4444'} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+          {(() => {
+            const fx = state.exchange_rate
+            const isTWD = rebalanceCcy === 'TWD'
+            const isUSD = rebalanceCcy === 'USD'
+            const isAll = rebalanceCcy === 'all'
 
-              <div className="overflow-x-auto mt-4">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-muted-foreground text-xs">
-                      <th className="text-left py-2 pr-4">標的</th>
-                      <th className="text-right pr-4">現值</th>
-                      <th className="text-right pr-4">目標%</th>
-                      <th className="text-right pr-4">偏移%</th>
-                      <th className="text-right pr-4">目標值</th>
-                      <th className="text-right pr-4">缺口</th>
-                      <th className="text-right">股數/金額</th>
-                      <th className="text-center pl-4">動作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rebalance.map(r => {
-                      const isPos = r.delta_twd >= 0
-                      const actualPct = total > 0 ? (r.current_value_twd / total) * 100 : 0
-                      const offsetPct = actualPct - r.target_pct
-                      const offsetLabel = r.target_pct > 0
-                        ? `${offsetPct >= 0 ? '+' : ''}${offsetPct.toFixed(1)}%`
-                        : '—'
-                      const offsetColor = r.target_pct > 0
-                        ? offsetPct > 0.5 ? 'text-red-500' : offsetPct < -0.5 ? 'text-emerald-600' : 'text-muted-foreground'
-                        : 'text-muted-foreground'
-                      return (
-                        <tr key={r.symbol} className="border-b hover:bg-muted/50">
-                          <td className="py-2 pr-4 font-medium">
-                            {r.symbol}
-                            <span className="text-xs text-muted-foreground ml-1">{r.name}</span>
-                          </td>
-                          <td className="text-right pr-4"><A>{fmtWan(r.current_value_twd)}</A></td>
-                          <td className="text-right pr-4">{r.target_pct > 0 ? `${r.target_pct}%` : '—'}</td>
-                          <td className={`text-right pr-4 text-xs font-medium ${offsetColor}`}>{offsetLabel}</td>
-                          <td className="text-right pr-4">{r.target_pct > 0 ? <A>{fmtWan(r.target_value_twd)}</A> : '—'}</td>
-                          <td className={`text-right pr-4 font-medium ${isPos ? 'text-emerald-600' : 'text-red-500'}`}>
-                            {r.target_pct > 0 ? <A>{`${isPos ? '+' : ''}${fmt(r.delta_twd / 10000, 1)} 萬`}</A> : '—'}
-                          </td>
-                          <td className={`text-right text-xs ${isPos ? 'text-emerald-600' : 'text-red-500'}`}>
-                            {r.delta_shares !== undefined && r.target_pct > 0
-                              ? <A>{`${isPos ? '+' : ''}${fmt(r.delta_shares, 2)} 股`}</A>
-                              : '—'}
-                          </td>
-                          <td className="text-center pl-4">
-                            {r.target_pct > 0 && (
-                              <Badge variant={isPos ? 'default' : 'destructive'} className="text-xs">
-                                {isPos ? '買入' : '賣出'}
-                              </Badge>
-                            )}
-                          </td>
+            const rebalanceFiltered = isAll
+              ? rebalance
+              : rebalance.filter(r => r.currency === rebalanceCcy)
+
+            // Bar chart: x-axis unit & delta value
+            const barDelta = (r: typeof rebalance[number]) =>
+              isUSD && r.delta_usd !== undefined
+                ? Math.round(r.delta_usd)
+                : parseFloat((r.delta_twd / 10000).toFixed(1))
+
+            const barTickFmt = isUSD
+              ? (v: number) => `$${fmt(v)}`
+              : (v: number) => `${v}萬`
+
+            const barTipFmt = (v: number) =>
+              blurred ? '***' : isUSD ? `$${fmt(Number(v))} USD` : `${Number(v)} 萬 TWD`
+
+            // Table: display helpers for native currency
+            const fmtCurrentValue = (r: typeof rebalance[number]) => {
+              if (isUSD) return `$${fmt(r.current_value_twd / fx, 2)}`
+              if (isTWD) return fmt(r.current_value_twd, 0)
+              return fmtWan(r.current_value_twd)
+            }
+            const fmtTargetValue = (r: typeof rebalance[number]) => {
+              if (isUSD) return `$${fmt(r.target_value_twd / fx, 2)}`
+              if (isTWD) return fmt(r.target_value_twd, 0)
+              return fmtWan(r.target_value_twd)
+            }
+            const fmtDelta = (r: typeof rebalance[number]) => {
+              const sign = r.delta_twd >= 0 ? '+' : ''
+              if (isUSD && r.delta_usd !== undefined)
+                return `${sign}$${fmt(r.delta_usd, 2)}`
+              if (isTWD)
+                return `${sign}${fmt(r.delta_twd, 0)}`
+              return `${sign}${fmt(r.delta_twd / 10000, 1)} 萬`
+            }
+            const fmtShares = (r: typeof rebalance[number]) => {
+              if (r.delta_shares === undefined || r.target_pct === 0) return '—'
+              const sign = r.delta_shares >= 0 ? '+' : ''
+              if (isTWD) {
+                const zhang = Math.floor(Math.abs(r.delta_shares) / 1000)
+                return zhang > 0 ? `${sign}${fmt(zhang)} 張` : `${sign}${fmt(Math.abs(r.delta_shares), 0)} 股`
+              }
+              if (isUSD) {
+                const intShares = Math.floor(Math.abs(r.delta_shares))
+                return `${sign}${fmt(intShares)} 股`
+              }
+              return `${sign}${fmt(r.delta_shares, 2)} 股`
+            }
+
+            const valueLabel = isUSD ? '現值 (USD)' : isTWD ? '現值 (TWD)' : '現值'
+            const deltaLabel = isUSD ? '缺口 (USD)' : isTWD ? '缺口 (TWD)' : '缺口'
+            const sharesLabel = isTWD ? '可買/賣 (張)' : '可買/賣 (股)'
+
+            return (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <CardTitle className="text-base">再平衡缺口分析</CardTitle>
+                      <p className="text-sm text-muted-foreground mt-0.5">以目前總資產 <A>{fmtWan(total)}</A> 為基準計算</p>
+                    </div>
+                    <div className="flex gap-1">
+                      {(['all', 'TWD', 'USD'] as const).map(v => (
+                        <Button
+                          key={v}
+                          variant={rebalanceCcy === v ? 'default' : 'outline'}
+                          size="sm"
+                          className="text-xs h-7"
+                          onClick={() => setRebalanceCcy(v)}
+                        >
+                          {v === 'all' ? '全部' : v === 'TWD' ? '台幣帳戶' : '美金帳戶'}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={rebalanceFiltered.length <= 4 ? 200 : 320}>
+                    <BarChart
+                      data={rebalanceFiltered.map(r => ({ name: r.symbol, delta: barDelta(r) }))}
+                      layout="vertical" margin={{ left: 20, right: 30 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" tickFormatter={barTickFmt} />
+                      <YAxis type="category" dataKey="name" width={55} tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v) => [barTipFmt(Number(v)), '缺口']} />
+                      <ReferenceLine x={0} stroke="#64748b" />
+                      <Bar dataKey="delta" radius={[0, 3, 3, 0]}>
+                        {rebalanceFiltered.map((r, i) => <Cell key={i} fill={r.delta_twd >= 0 ? '#10b981' : '#ef4444'} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+
+                  <div className="overflow-x-auto mt-4">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-muted-foreground text-xs">
+                          <th className="text-left py-2 pr-4">標的</th>
+                          <th className="text-right pr-4">{valueLabel}</th>
+                          <th className="text-right pr-4">目標%</th>
+                          <th className="text-right pr-4">偏移%</th>
+                          <th className="text-right pr-4">目標值</th>
+                          <th className="text-right pr-4">{deltaLabel}</th>
+                          <th className="text-right">{isAll ? '股數/金額' : sharesLabel}</th>
+                          <th className="text-center pl-4">動作</th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                      </thead>
+                      <tbody>
+                        {rebalanceFiltered.map(r => {
+                          const isPos = r.delta_twd >= 0
+                          const actualPct = total > 0 ? (r.current_value_twd / total) * 100 : 0
+                          const offsetPct = actualPct - r.target_pct
+                          const offsetLabel = r.target_pct > 0
+                            ? `${offsetPct >= 0 ? '+' : ''}${offsetPct.toFixed(1)}%`
+                            : '—'
+                          const offsetColor = r.target_pct > 0
+                            ? offsetPct > 0.5 ? 'text-red-500' : offsetPct < -0.5 ? 'text-emerald-600' : 'text-muted-foreground'
+                            : 'text-muted-foreground'
+                          return (
+                            <tr key={r.symbol} className="border-b hover:bg-muted/50">
+                              <td className="py-2 pr-4 font-medium">
+                                {r.symbol}
+                                <span className="text-xs text-muted-foreground ml-1">{r.name}</span>
+                              </td>
+                              <td className="text-right pr-4"><A>{fmtCurrentValue(r)}</A></td>
+                              <td className="text-right pr-4">{r.target_pct > 0 ? `${r.target_pct}%` : '—'}</td>
+                              <td className={`text-right pr-4 text-xs font-medium ${offsetColor}`}>{offsetLabel}</td>
+                              <td className="text-right pr-4">{r.target_pct > 0 ? <A>{fmtTargetValue(r)}</A> : '—'}</td>
+                              <td className={`text-right pr-4 font-medium ${isPos ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {r.target_pct > 0 ? <A>{fmtDelta(r)}</A> : '—'}
+                              </td>
+                              <td className={`text-right text-xs font-semibold ${isPos ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {r.target_pct > 0 ? <A>{fmtShares(r)}</A> : '—'}
+                              </td>
+                              <td className="text-center pl-4">
+                                {r.target_pct > 0 && (
+                                  <Badge variant={isPos ? 'default' : 'destructive'} className="text-xs">
+                                    {isPos ? '買入' : '賣出'}
+                                  </Badge>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })()}
         </TabsContent>
 
         {/* ── Tab 6: 持倉明細 ── */}
@@ -674,7 +753,10 @@ export default function Dashboard() {
                     <tbody>
                       {[...state.transactions]
                         .filter(tx => !txMonthFilter || tx.date.startsWith(txMonthFilter))
-                        .sort((a, b) => b.date.localeCompare(a.date))
+                        .sort((a, b) => {
+                          const d = b.date.localeCompare(a.date)
+                          return d !== 0 ? d : b.id.localeCompare(a.id)
+                        })
                         .map(tx => {
                         const typeLabel: Record<TxType, string> = {
                           buy: '買入', sell: '賣出', cash_in: '現金入', cash_out: '現金出',
