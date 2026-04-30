@@ -50,6 +50,12 @@ export default function Dashboard() {
     saveState(next)
   }, [])
 
+  const handleRootDirChange = useCallback((dir: string | null) => {
+    setDbRootDir(dir)
+    if (dir) localStorage.setItem('asset_dashboard_rootDir', dir)
+    else localStorage.removeItem('asset_dashboard_rootDir')
+  }, [])
+
   useEffect(() => {
     async function init() {
       let rootDir: string | null = null
@@ -58,6 +64,23 @@ export default function Dashboard() {
         const d = await r.json() as { rootDir?: string }
         rootDir = d.rootDir ?? null
       } catch {}
+
+      // 若 server 沒有設定，從 localStorage 還原並同步回 server
+      if (!rootDir) {
+        const cached = localStorage.getItem('asset_dashboard_rootDir')
+        if (cached) {
+          rootDir = cached
+          fetch('/api/db/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rootDir }),
+          }).catch(() => {})
+        }
+      } else {
+        // server 有設定，同步到 localStorage
+        localStorage.setItem('asset_dashboard_rootDir', rootDir)
+      }
+
       setDbRootDir(rootDir)
 
       if (rootDir) {
@@ -834,7 +857,8 @@ export default function Dashboard() {
         open={dbOpen}
         onClose={() => setDbOpen(false)}
         currentState={state}
-        onRootDirChange={setDbRootDir}
+        rootDir={dbRootDir}
+        onRootDirChange={handleRootDirChange}
         onLoad={(s, _date) => commit(s)}
       />
       <EditTransactionDialog

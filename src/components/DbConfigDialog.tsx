@@ -19,11 +19,12 @@ interface Props {
   open: boolean
   onClose: () => void
   currentState: AppState
+  rootDir: string | null
   onRootDirChange: (dir: string | null) => void
   onLoad: (state: AppState, date: string) => void
 }
 
-export default function DbConfigDialog({ open, onClose, currentState, onRootDirChange, onLoad }: Props) {
+export default function DbConfigDialog({ open, onClose, currentState, rootDir, onRootDirChange, onLoad }: Props) {
   const [inputDir, setInputDir] = useState('')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -33,15 +34,21 @@ export default function DbConfigDialog({ open, onClose, currentState, onRootDirC
 
   useEffect(() => {
     if (!open) return
+    // 優先用 Dashboard 已同步好的 rootDir，再 fallback 到 server
+    if (rootDir) {
+      setInputDir(rootDir)
+      refreshStatus(rootDir)
+      return
+    }
     fetch('/api/db/config')
       .then(r => r.json())
       .then((d: { rootDir?: string }) => {
-        const dir = d.rootDir ?? ''
+        const dir = d.rootDir ?? localStorage.getItem('asset_dashboard_rootDir') ?? ''
         setInputDir(dir)
         if (dir) refreshStatus(dir)
       })
       .catch(() => {})
-  }, [open])
+  }, [open, rootDir])
 
   async function refreshStatus(dir?: string) {
     const res = await fetch('/api/db/load').catch(() => null)
