@@ -431,7 +431,7 @@ export default function TransactionDialog({ open, onClose, onSubmit, holdings, c
             <>
               <Row label="帳戶名稱">
                 <Input
-                  placeholder="如 富邦 台幣現金"
+                  placeholder="如 台幣帳戶、美金帳戶"
                   value={newBankName}
                   onChange={e => setNewBankName(e.target.value)}
                 />

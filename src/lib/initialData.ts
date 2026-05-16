@@ -1,36 +1,34 @@
 import type { AppState } from './types'
 
 export const INITIAL_STATE: AppState = {
-  exchange_rate: 31.5330,
+  exchange_rate: 32.0,
   holdings: [
     // 核心資產 (35%)：0050 15%、VOO 20%
-    { symbol: '0050',   name: '元大台50',  currency: 'TWD', category: 'core',        shares: 16675, price: 89.95,   target_pct: 15  },
-    { symbol: 'VOO',    name: '標普500',   currency: 'USD', category: 'core',        shares: 97,    price: 652.00,  target_pct: 20  },
+    { symbol: '0050',   name: '元大台50',  currency: 'TWD', category: 'core',        shares: 1000, price: 90.0,   target_pct: 15  },
+    { symbol: 'VOO',    name: '標普500',   currency: 'USD', category: 'core',        shares: 10,   price: 550.0,  target_pct: 20  },
     // 攻擊資產 (30%)：00631L 15%、QQQ 15%
-    { symbol: '00631L', name: '台50正2',   currency: 'TWD', category: 'aggressive',  shares: 3269,  price: 458.75,  target_pct: 15  },
-    { symbol: 'QQQ',    name: '納斯達克',  currency: 'USD', category: 'aggressive',  shares: 72,    price: 655.95,  target_pct: 15  },
+    { symbol: '00631L', name: '台50正2',   currency: 'TWD', category: 'aggressive',  shares: 500,  price: 460.0,  target_pct: 15  },
+    { symbol: 'QQQ',    name: '納斯達克',  currency: 'USD', category: 'aggressive',  shares: 5,    price: 480.0,  target_pct: 15  },
     // 分散資產 (15%)：VEA 7.5%、VWO 7.5%
-    { symbol: 'VEA',    name: '非美成熟',  currency: 'USD', category: 'global',      shares: 350,   price: 67.78,   target_pct: 7.5 },
-    { symbol: 'VWO',    name: '新興市場',  currency: 'USD', category: 'global',      shares: 410,   price: 57.92,   target_pct: 7.5 },
+    { symbol: 'VEA',    name: '非美成熟',  currency: 'USD', category: 'global',      shares: 50,   price: 52.0,   target_pct: 7.5 },
+    { symbol: 'VWO',    name: '新興市場',  currency: 'USD', category: 'global',      shares: 50,   price: 45.0,   target_pct: 7.5 },
     // 另類資產 (5%)：IBIT 3%、IAU 2%
-    { symbol: 'IBIT',   name: '比特幣',    currency: 'USD', category: 'alternative', shares: 215,   price: 44.14,   target_pct: 3   },
-    { symbol: 'IAU',    name: '黃金',      currency: 'USD', category: 'alternative', shares: 72,    price: 88.05,   target_pct: 2   },
+    { symbol: 'IBIT',   name: '比特幣',    currency: 'USD', category: 'alternative', shares: 10,   price: 50.0,   target_pct: 3   },
+    { symbol: 'IAU',    name: '黃金',      currency: 'USD', category: 'alternative', shares: 10,   price: 55.0,   target_pct: 2   },
     // 防禦資產 (15%)：SGOV 7.5%（現金帳戶另貢獻 7.5%）
-    { symbol: 'SGOV',   name: '短期美債',  currency: 'USD', category: 'defensive',   shares: 236,   price: 100.63,  target_pct: 7.5 },
+    { symbol: 'SGOV',   name: '短期美債',  currency: 'USD', category: 'defensive',   shares: 30,   price: 100.5,  target_pct: 7.5 },
   ],
   cash_accounts: [
-    // 防禦資產 7.5%：TWD 目標 750,000 + 股數購買餘額 430
-    { id: 'fubon-twd',  bank: '富邦 台幣現金', currency: 'TWD', amount: 750430,  type: 'bank', target_pct: 7.5 },
-    // USD 購股餘額（各 USD ETF 零股餘額加總）
-    { id: 'schwab-usd', bank: '嘉信 美金現金', currency: 'USD', amount: 684.13,  type: 'bank', target_pct: 0   },
+    { id: 'twd-bank', bank: '台幣帳戶', currency: 'TWD', amount: 100000, type: 'bank', target_pct: 7.5 },
+    { id: 'usd-bank', bank: '美金帳戶', currency: 'USD', amount: 500,    type: 'bank', target_pct: 0   },
   ],
   transactions: [],
   snapshots: [],
   retirement: {
-    birth_year: 1985,
-    retirement_age: 55,               // target year 2040
-    target_amount_twd: 50000000,      // 5000萬
-    monthly_contribution_wan: 12.5,   // 12.5萬/月 = 150萬/年
+    birth_year: 1990,
+    retirement_age: 50,
+    target_amount_twd: 30000000,
+    monthly_contribution_wan: 5,
     expected_annual_return: 0.07,
   },
 }

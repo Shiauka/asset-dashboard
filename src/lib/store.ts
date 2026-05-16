@@ -17,8 +17,8 @@ export function loadState(): AppState {
       target_amount_twd:       (r.target_amount_twd as number)       ?? 20000000,
       monthly_contribution_wan:(r.annual_contribution_wan as number ?? 60) / 12,
       expected_annual_return:  (r.expected_annual_return as number)  ?? 0.07,
-      birth_year:              1985,
-      retirement_age:          ((r.target_year as number) ?? 2040) - 1985,
+      birth_year:              1990,
+      retirement_age:          ((r.target_year as number) ?? 2040) - 1990,
     }
     return {
       ...parsed,
