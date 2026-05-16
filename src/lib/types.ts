@@ -39,9 +39,12 @@ export interface Transaction {
 }
 
 export interface RetirementSettings {
-  target_year: number
   target_amount_twd: number
-  annual_contribution_wan: number
+  monthly_contribution_wan: number
+  expected_annual_return: number   // 0–1 decimal, e.g. 0.07 for 7%
+  birth_year: number
+  retirement_age: number
+  // Derived: target_year = birth_year + retirement_age
 }
 
 export interface DailySnapshot {

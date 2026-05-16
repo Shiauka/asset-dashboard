@@ -1,5 +1,5 @@
 import { INITIAL_STATE } from './initialData'
-import type { AppState, Holding, CashAccount, Transaction, Category } from './types'
+import type { AppState, Holding, CashAccount, Transaction, Category, RetirementSettings } from './types'
 import { getTaiwanToday } from './dateUtils'
 import { categorySummaries, holdingValueTwd } from './calc'
 
@@ -11,9 +11,18 @@ export function loadState(): AppState {
     const raw = localStorage.getItem(KEY)
     if (!raw) return INITIAL_STATE
     const parsed = JSON.parse(raw) as AppState
-    // Backwards-compat: missing fields from older saves
+    // Migrate old retirement format (target_year / annual_contribution_wan → new fields)
+    const r = parsed.retirement as unknown as Record<string, unknown>
+    const migratedRetirement: RetirementSettings = r.birth_year != null ? parsed.retirement : {
+      target_amount_twd:       (r.target_amount_twd as number)       ?? 20000000,
+      monthly_contribution_wan:(r.annual_contribution_wan as number ?? 60) / 12,
+      expected_annual_return:  (r.expected_annual_return as number)  ?? 0.07,
+      birth_year:              1985,
+      retirement_age:          ((r.target_year as number) ?? 2040) - 1985,
+    }
     return {
       ...parsed,
+      retirement: migratedRetirement,
       snapshots: parsed.snapshots ?? [],
       cash_accounts: parsed.cash_accounts.map(c => ({
         ...c,

@@ -14,6 +14,7 @@ import { loadState, saveState, resetState, applyTransaction, updateRetirement, r
 import { getTaiwanToday } from '@/lib/dateUtils'
 import { totalAssetsTwd, categorySummaries, rebalanceRows, categoryDrillDown, requiredAnnualReturn, totalTargetPct } from '@/lib/calc'
 import { INITIAL_STATE } from '@/lib/initialData'
+import { DEMO_STATE } from '@/lib/demoData'
 import type { AppState, Transaction, TxType, Category, RetirementSettings } from '@/lib/types'
 import TransactionDialog from './TransactionDialog'
 import RetirementDialog from './RetirementDialog'
@@ -57,7 +58,17 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const isDemo = params.has('demo')
+    const initTab = params.get('tab')
+    if (initTab) setActiveTab(initTab)
+
     async function init() {
+      if (isDemo) {
+        setState(DEMO_STATE)
+        return
+      }
+
       let rootDir: string | null = null
       try {
         const r = await fetch('/api/db/config')
@@ -288,11 +299,12 @@ export default function Dashboard() {
   const deviatingBuckets = cats.filter(
     c => c.target_pct > 0 && Math.abs(c.actual_pct - c.target_pct) >= DEVIATION_THRESHOLD,
   )
-  const { target_year, target_amount_twd, annual_contribution_wan } = state.retirement
+  const { birth_year, retirement_age, target_amount_twd, monthly_contribution_wan } = state.retirement
+  const target_year = birth_year + retirement_age
   const progress = total / target_amount_twd
   const remaining = target_amount_twd - total
   const yearsLeft = target_year - new Date().getFullYear()
-  const reqReturn = requiredAnnualReturn(total, target_amount_twd, yearsLeft, annual_contribution_wan * 10000)
+  const reqReturn = requiredAnnualReturn(total, target_amount_twd, yearsLeft, monthly_contribution_wan * 10000 * 12)
 
   const barData = cats.map(c => ({
     name: c.name,
@@ -397,7 +409,7 @@ export default function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="pb-1">
-            <CardTitle className="text-sm text-muted-foreground">目標進度 ({target_year})</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">目標進度（{retirement_age} 歲 {target_year}）</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{(progress * 100).toFixed(1)}%</p>

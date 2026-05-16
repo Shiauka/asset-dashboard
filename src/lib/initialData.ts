@@ -27,8 +27,10 @@ export const INITIAL_STATE: AppState = {
   transactions: [],
   snapshots: [],
   retirement: {
-    target_year: 2036,
-    target_amount_twd: 50000000,
-    annual_contribution_wan: 150,
+    birth_year: 1985,
+    retirement_age: 55,               // target year 2040
+    target_amount_twd: 50000000,      // 5000萬
+    monthly_contribution_wan: 12.5,   // 12.5萬/月 = 150萬/年
+    expected_annual_return: 0.07,
   },
 }
